@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Шпион-Художник | ОНЛАЙН</title>
+    <style>
+        :root { --primary: #004d99; --secondary: #ffcc00; --bg: #f4f4f4; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 10px; }
+        .container { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 450px; text-align: center; }
+        .hidden { display: none; }
+        input { padding: 12px; border: 2px solid #ddd; border-radius: 8px; width: 80%; margin-bottom: 10px; font-size: 16px; }
+        button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--primary); color: white; cursor: pointer; font-weight: bold; margin: 5px; }
+        button:hover { opacity: 0.9; }
+        #canvas { border: 2px solid #333; background: white; cursor: crosshair; touch-action: none; border-radius: 8px; display: block; margin: 10px auto; }
+        .player-list { list-style: none; padding: 0; text-align: left; background: #eee; border-radius: 8px; padding: 10px; }
+        .status-bar { font-weight: bold; color: var(--primary); margin-bottom: 10px; font-size: 1.1em; }
+        footer { margin-top: 15px; font-size: 0.8em; color: #888; }
+        footer a { color: var(--primary); text-decoration: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Шпион-Художник</h1>
+
+    <div id="screen-auth">
+        <h2>Добро пожаловать!</h2>
+        <input type="text" id="input-nick" placeholder="Введи свой никнейм">
+        <br>
+        <button onclick="saveNick()">Войти в игру</button>
+    </div>
+
+    <div id="screen-menu" class="hidden">
+        <h2 id="welcome-msg"></h2>
+        <button onclick="createLobby()">Создать лобби</button>
+        <button onclick="joinLobby()">Присоединиться</button>
+    </div>
+
+    <div id="screen-lobby" class="hidden">
+        <h3>Код лобби: <span id="lobby-code-display" style="color:red"></span></h3>
+        <p>Игроки в комнате:</p>
+        <ul id="list-players" class="player-list"></ul>
+        <button id="btn-start" class="hidden" onclick="hostStartGame()">Начать игру!</button>
+        <p id="wait-msg">Ждем игроков (мин. 3)...</p>
+    </div>
+
+    <div id="screen-role" class="hidden">
+        <h2 id="role-display"></h2>
+        <p>Секретное слово:</p>
+        <h1 id="word-display" style="background: #eee; padding: 15px; border-radius: 10px;"></h1>
+        <button onclick="confirmRole()">Я всё понял, к доске!</button>
+    </div>
+
+    <div id="screen-draw" class="hidden">
+        <div id="turn-info" class="status-bar">Загрузка хода...</div>
+        <canvas id="canvas" width="300" height="300"></canvas>
+        <div id="draw-controls">
+            <button id="btn-finish-line" class="hidden" onclick="finishTurn()">Закончил линию</button>
+            <p id="txt-wait-turn">Сейчас не твой ход</p>
+        </div>
+    </div>
+
+    <div id="screen-vote" class="hidden">
+        <h2>Кто шпион?</h2>
+        <div id="vote-buttons"></div>
+        <hr>
+        <button onclick="castVote('skip')" style="background: #777;">Пропустить (Продолжить рисовать)</button>
+    </div>
+
+    <div id="screen-results" class="hidden">
+        <h2 id="result-text"></h2>
+        <button onclick="location.reload()">Вернуться в меню</button>
+    </div>
+
+    <footer>made by <a href="https://t.me/+fKYj8vE7cPI4ZDAy" target="_blank">froelly</a></footer>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyA0kKBScpGk2Ym7ziX65XC1erJUDBBSIoQ",
+        authDomain: "froelly-a4d64.firebaseapp.com",
+        projectId: "froelly-a4d64",
+        storageBucket: "froelly-a4d64.firebasestorage.app",
+        messagingSenderId: "724747270322",
+        appId: "1:724747270322:web:5e68d281360db9c249f1ab",
+        databaseURL: "https://froelly-a4d64-default-rtdb.firebaseio.com/"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let myNick = "", lobbyId = "", isHost = false, players = [];
+    let hasSeenRole = false;
+    let currentLobbyData = null; // Хранит последние данные лобби
+
+    function showScreen(id) {
+        document.querySelectorAll('.container > div').forEach(d => {
+            if(d.id.startsWith('screen')) d.classList.add('hidden');
+        });
+        document.getElementById(id).classList.remove('hidden');
+    }
+
+    function saveNick() {
+        myNick = document.getElementById('input-nick').value.trim();
+        if (myNick.length < 2) return alert("Ник слишком короткий!");
+        document.getElementById('welcome-msg').innerText = "Привет, " + myNick;
+        showScreen('screen-menu');
+    }
+
+    function createLobby() {
+        isHost = true;
+        lobbyId = Math.random().toString(36).substring(2, 6).toUpperCase();
+        db.ref('lobbies/' + lobbyId).set({
+            status: 'waiting',
+            players: [myNick],
+            host: myNick,
+            currentTurn: 0,
+            word: ["Мяч", "Ворота", "Кубок", "Поле", "Бутсы", "Свисток", "Шарф", "Капитан", "Стадион"][Math.floor(Math.random()*9)]
+        });
+        connectToFirebase();
+    }
+
+    function joinLobby() {
+        const code = prompt("Код лобби:").toUpperCase();
+        if (!code) return;
+        db.ref('lobbies/' + code).once('value', snap => {
+            if (!snap.exists()) return alert("Игра не найдена!");
+            lobbyId = code;
+            let data = snap.val();
+            let pList = data.players || [];
+            if (!pList.includes(myNick)) pList.push(myNick);
+            db.ref('lobbies/' + lobbyId).update({ players: pList });
+            connectToFirebase();
+        });
+    }
+
+    function connectToFirebase() {
+        showScreen('screen-lobby');
+        document.getElementById('lobby-code-display').innerText = lobbyId;
+
+        db.ref('lobbies/' + lobbyId).on('value', snap => {
+            currentLobbyData = snap.val(); // Обновляем данные лобби
+            if (!currentLobbyData) {
+                alert("Лобби было закрыто или не существует.");
+                lobbyId = null;
+                showScreen('screen-menu');
+                return;
+            }
+            players = currentLobbyData.players; // Обновляем глобальный список игроков для UI
+
+            document.getElementById('list-players').innerHTML = players.map(p => `<li>⚽️ ${p}</li>`).join('');
+
+            if (isHost && players.length >= 3 && currentLobbyData.status === 'waiting') {
+                document.getElementById('btn-start').classList.remove('hidden');
+                document.getElementById('wait-msg').classList.add('hidden');
+            } else {
+                 document.getElementById('btn-start').classList.add('hidden');
+                 document.getElementById('wait-msg').classList.remove('hidden');
+            }
+
+            // Логика перехода между экранами
+            if (currentLobbyData.status === 'playing') {
+                if (!hasSeenRole) {
+                    showRoleScreen(currentLobbyData);
+                } else {
+                    // Всегда обновляем экран рисования, если роль уже показана
+                    updateDrawingScreen(currentLobbyData);
+                }
+            } else if (currentLobbyData.status === 'voting') {
+                showVoteScreen(currentLobbyData);
+            } else if (currentLobbyData.status === 'results') {
+                showResultsScreen(currentLobbyData);
+            }
+        });
+
+        db.ref('drawings/' + lobbyId).on('child_added', snap => {
+            const line = snap.val();
+            if (line.player !== myNick) drawRemoteLine(line);
+        });
+    }
+
+    function hostStartGame() {
+        const spy = players[Math.floor(Math.random() * players.length)];
+        db.ref('lobbies/' + lobbyId).update({
+            status: 'playing',
+            spy: spy,
+            currentTurn: 0 // Устанавливаем первый ход
+        });
+    }
+
+    function showRoleScreen(data) {
+        hasSeenRole = true;
+        const imSpy = (data.spy === myNick);
+        document.getElementById('role-display').innerText = imSpy ? "ТЫ ШПИОН!" : "ТЫ ХУДОЖНИК";
+        document.getElementById('role-display').style.color = imSpy ? "red" : "green";
+        document.getElementById('word-display').innerText = imSpy ? "??? (Угадай по рисунку)" : data.word;
+        showScreen('screen-role');
+    }
+
+    function confirmRole() {
+        showScreen('screen-draw');
+        initCanvas();
+        // Принудительно обновляем состояние рисования после подтверждения роли
+        if (currentLobbyData) {
+            updateDrawingScreen(currentLobbyData);
+        } else {
+            console.error("Ошибка: currentLobbyData не загружены при подтверждении роли.");
+            alert("Ошибка загрузки данных лобби. Попробуйте перезагрузить страницу.");
+        }
+    }
+
+    function updateDrawingScreen(data) {
+        showScreen('screen-draw'); // Убеждаемся, что экран рисования активен
+        
+        console.log("--- updateDrawingScreen called ---");
+        console.log("currentLobbyData.currentTurn:", data.currentTurn);
+        console.log("data.players:", data.players);
+        console.log("myNick:", myNick);
+
+        const turnIndex = data.currentTurn || 0;
+        const currentPlayers = data.players || []; // Используем players напрямую из data
+        const turnNick = currentPlayers[turnIndex]; // Определяем, кто сейчас ходит
+
+        const isMyTurn = (turnNick === myNick);
+        window.isMyTurnNow = isMyTurn; // Глобальный флаг для холста
+
+        console.log("turnIndex:", turnIndex, "turnNick:", turnNick, "isMyTurn:", isMyTurn);
+
+        document.getElementById('turn-info').innerText = isMyTurn ? "ТВОЙ ХОД! Рисуй линию" : "Рисует: " + turnNick;
+        document.getElementById('btn-finish-line').classList.toggle('hidden', !isMyTurn);
+        document.getElementById('txt-wait-turn').classList.toggle('hidden', isMyTurn);
+    }
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let drawing = false, lastX = 0, lastY = 0;
+
+    function initCanvas() {
+        ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#000';
+        canvas.onmousedown = startDrawing;
+        canvas.onmousemove = moveDrawing;
+        canvas.onmouseup = stopDrawing;
+        canvas.onmouseout = stopDrawing; 
+        canvas.ontouchstart = (e) => { e.preventDefault(); startDrawing(e.touches[0]); };
+        canvas.ontouchmove = (e) => { e.preventDefault(); moveDrawing(e.touches[0]); };
+        canvas.ontouchend = stopDrawing;
+    }
+
+    function startDrawing(e) {
+        if (!window.isMyTurnNow) {
+            console.log("Не твой ход, рисование заблокировано.");
+            return;
+        }
+        drawing = true;
+        const rect = canvas.getBoundingClientRect();
+        lastX = (e.clientX || e.pageX) - rect.left;
+        lastY = (e.clientY || e.pageY) - rect.top;
+    }
+
+    function moveDrawing(e) {
+        if (!drawing || !window.isMyTurnNow) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX || e.pageX) - rect.left;
+        const y = (e.clientY || e.pageY) - rect.top;
+        ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(x, y); ctx.stroke();
+        db.ref('drawings/' + lobbyId).push({ player: myNick, x1: lastX, y1: lastY, x2: x, y2: y });
+        lastX = x; lastY = y;
+    }
+
+    function stopDrawing() { drawing = false; }
+    function drawRemoteLine(l) {
+        ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(l.x2, l.y2); ctx.stroke();
+    }
+
+    function finishTurn() {
+        db.ref('lobbies/' + lobbyId).once('value', snap => {
+            const data = snap.val();
+            let next = (data.currentTurn || 0) + 1;
+            if (next >= players.length) {
+                db.ref('lobbies/' + lobbyId).update({ status: 'voting' });
+            } else {
+                db.ref('lobbies/' + lobbyId).update({ currentTurn: next });
+            }
+        });
+    }
+
+    function showVoteScreen(data) {
+        showScreen('screen-vote');
+        const box = document.getElementById('vote-buttons');
+        box.innerHTML = "";
+        players.forEach(p => {
+            if (p === myNick) return;
+            let btn = document.createElement('button');
+            btn.innerText = p;
+            btn.onclick = () => castVote(p);
+            box.appendChild(btn);
+        });
+    }
+
+    function castVote(target) {
+        db.ref('lobbies/' + lobbyId + '/votes/' + myNick).set(target);
+        alert("Голос принят! Ждем остальных...");
+        if (isHost) {
+            db.ref('lobbies/' + lobbyId + '/votes').on('value', snap => {
+                const votes = snap.val();
+                if (votes && Object.keys(votes).length >= players.length) {
+                    db.ref('lobbies/' + lobbyId + '/votes').off(); // Отключаем слушатель после сбора всех голосов
+                    processResults(currentLobbyData, votes);
+                }
+            });
+        }
+    }
+
+    function processResults(data, votes) {
+        let skipCount = 0;
+        let counts = {};
+        for (let p in votes) {
+            if (votes[p] === 'skip') skipCount++;
+            else counts[votes[p]] = (counts[votes[p]] || 0) + 1;
+        }
+
+        let maxVotes = 0;
+        let votedOutPlayer = "skip"; // По умолчанию считаем, что пропуск лидирует
+        for (let p in counts) {
+if (counts[p] > maxVotes) {
+                maxVotes = counts[p];
+                votedOutPlayer = p;
+            }
+        }
+        
+        // Если скипов больше, чем голосов за конкретного игрока, или ничья с "скипом"
+        if (skipCount > maxVotes || (skipCount === maxVotes && votedOutPlayer === "skip")) { 
+            db.ref('lobbies/' + lobbyId).update({
+                status: 'playing', // Продолжаем игру
+                currentTurn: 0,
+                votes: null // Очищаем голоса
+            });
+            alert("Голосование пропущено! Продолжаем рисовать.");
+        } else {
+            // Кого-то выгнали, игра окончена
+            db.ref('lobbies/' + lobbyId).update({
+                status: 'results',
+                kicked: votedOutPlayer,
+                winner: (votedOutPlayer === data.spy) ? "Художники" : "Шпион",
+                spyNick: data.spy
+            });
+        }
+    }
+
+    function showResultsScreen(data) {
+        showScreen('screen-results');
+        document.getElementById('result-text').innerText = 
+            `Выгнали: ${data.kicked}. Победил ${data.winner}! Шпионом был ${data.spyNick}.`;
+        
+        // Отключаем все слушатели Firebase, так как игра завершена
+        db.ref('lobbies/' + lobbyId).off();
+        db.ref('drawings/' + lobbyId).off();
+    }
+</script>
+</body>
+</html>
