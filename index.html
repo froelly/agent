@@ -231,22 +231,37 @@ hasSeenRole = true;
         canvas.ontouchend = stopDrawing;
     }
 
-    function startDrawing(e) {
+        function startDrawing(e) {
         if (!window.isMyTurnNow) return;
         drawing = true;
         const rect = canvas.getBoundingClientRect();
-        lastX = (e.clientX || e.pageX) - rect.left;
-        lastY = (e.clientY || e.pageY) - rect.top;
+        
+        // Считаем масштаб (соотношение реального размера к экранному)
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+
+        lastX = ((e.clientX || e.pageX) - rect.left) * scaleX;
+        lastY = ((e.clientY || e.pageY) - rect.top) * scaleY;
     }
 
     function moveDrawing(e) {
         if (!drawing || !window.isMyTurnNow) return;
         const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX || e.pageX) - rect.left;
-        const y = (e.clientY || e.pageY) - rect.top;
-        ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(x, y); ctx.stroke();
+        
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+
+        const x = ((e.clientX || e.pageX) - rect.left) * scaleX;
+        const y = ((e.clientY || e.pageY) - rect.top) * scaleY;
+
+        ctx.beginPath(); 
+        ctx.moveTo(lastX, lastY); 
+        ctx.lineTo(x, y); 
+        ctx.stroke();
+
         db.ref('drawings/' + lobbyId).push({ x1: lastX, y1: lastY, x2: x, y2: y });
-        lastX = x; lastY = y;
+        lastX = x; 
+        lastY = y;
     }
 
     function stopDrawing() { drawing = false; }
