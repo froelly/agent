@@ -5,15 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Шпион-Художник | ОНЛАЙН</title>
     <style>
-        :root { --primary: #004d99; --secondary: #ffcc00; --bg: #f4f4f4; }
+        :root { --primary: #004d99; --secondary: #ffcc00; --bg: #f4f4f4; --danger: #cc0000; }
         body { font-family: 'Segoe UI', sans-serif; background: var(--bg); display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 10px; }
-        .container { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 450px; text-align: center; }
+        .container { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 500px; text-align: center; }
         .hidden { display: none; }
         input { padding: 12px; border: 2px solid #ddd; border-radius: 8px; width: 80%; margin-bottom: 10px; font-size: 16px; }
         button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--primary); color: white; cursor: pointer; font-weight: bold; margin: 5px; }
         button:hover { opacity: 0.9; }
-        #canvas { border: 2px solid #333; background: white; cursor: crosshair; touch-action: none; border-radius: 8px; display: block; margin: 10px auto; }
-        .player-list { list-style: none; padding: 0; text-align: left; background: #eee; border-radius: 8px; padding: 10px; }
+        button.danger { background: var(--danger); }
+        #canvas { border: 2px solid #333; background: white; cursor: crosshair; touch-action: none; border-radius: 8px; display: block; margin: 10px auto; max-width: 100%; }
+        .player-list { list-style: none; padding: 0; text-align: left; background: #eee; border-radius: 8px; padding: 10px; margin-bottom: 15px;}
         .status-bar { font-weight: bold; color: var(--primary); margin-bottom: 10px; font-size: 1.1em; }
         footer { margin-top: 15px; font-size: 0.8em; color: #888; }
         footer a { color: var(--primary); text-decoration: none; }
@@ -25,10 +26,8 @@
     <h1>Шпион-Художник</h1>
 
     <div id="screen-auth">
-        <h2>Добро пожаловать!</h2>
         <input type="text" id="input-nick" placeholder="Введи свой никнейм">
-        <br>
-        <button onclick="saveNick()">Войти в игру</button>
+        <button onclick="saveNick()">Войти</button>
     </div>
 
     <div id="screen-menu" class="hidden">
@@ -38,25 +37,26 @@
     </div>
 
     <div id="screen-lobby" class="hidden">
-        <h3>Код лобби: <span id="lobby-code-display" style="color:red"></span></h3>
-        <p>Игроки в комнате:</p>
+        <h3>Код: <span id="lobby-code-display" style="color:red"></span></h3>
+        <p>Игроки:</p>
         <ul id="list-players" class="player-list"></ul>
-        <button id="btn-start" class="hidden" onclick="hostStartGame()">Начать игру!</button>
-        <p id="wait-msg">Ждем игроков (мин. 3)...</p>
+        <button id="btn-start" class="hidden" onclick="hostStartGame()">Начать игру</button>
+        <p id="wait-msg">Ждем игроков...</p>
     </div>
 
     <div id="screen-role" class="hidden">
         <h2 id="role-display"></h2>
         <p>Секретное слово:</p>
         <h1 id="word-display" style="background: #eee; padding: 15px; border-radius: 10px;"></h1>
-        <button onclick="confirmRole()">Я всё понял, к доске!</button>
+        <button onclick="confirmRole()">Поехали!</button>
     </div>
 
     <div id="screen-draw" class="hidden">
-        <div id="turn-info" class="status-bar">Загрузка хода...</div>
-        <canvas id="canvas" width="300" height="300"></canvas>
+        <div id="turn-info" class="status-bar">Загрузка...</div>
+        <canvas id="canvas" width="400" height="450"></canvas>
         <div id="draw-controls">
             <button id="btn-finish-line" class="hidden" onclick="finishTurn()">Закончил линию</button>
+            <button id="btn-spy-guess" class="hidden danger" onclick="showSpyGuessScreen()">Я знаю слово!</button>
             <p id="txt-wait-turn">Сейчас не твой ход</p>
         </div>
     </div>
@@ -65,12 +65,22 @@
         <h2>Кто шпион?</h2>
         <div id="vote-buttons"></div>
         <hr>
-        <button onclick="castVote('skip')" style="background: #777;">Пропустить (Продолжить рисовать)</button>
+        <button id="btn-skip-vote" onclick="castVote('skip')" style="background: #777;">Пропустить раунд</button>
+    </div>
+
+    <div id="screen-spy-guess" class="hidden">
+        <h2>Шпион, угадай слово!</h2>
+        <p>У тебя только 1 попытка.</p>
+        <input type="text" id="spy-guess-input" placeholder="Слово...">
+        <br>
+        <button onclick="spyGuessWord()">Проверить</button>
+        <button onclick="showScreen('screen-draw')" style="background: #777;">Назад</button>
     </div>
 
     <div id="screen-results" class="hidden">
         <h2 id="result-text"></h2>
-        <button onclick="location.reload()">Вернуться в меню</button>
+        <p id="spy-info" style="font-size: 1.2em; font-weight: bold; color: #004d99;"></p>
+        <button onclick="returnToLobby()">Вернуться в лобби</button>
     </div>
 
     <footer>made by <a href="https://t.me/+fKYj8vE7cPI4ZDAy" target="_blank">froelly</a></footer>
@@ -93,20 +103,18 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    let myNick = "", lobbyId = "", isHost = false, players = [];
-    let hasSeenRole = false;
-    let currentLobbyData = null; // Хранит последние данные лобби
+    let myNick = "", lobbyId = "", isHost = false, hasSeenRole = false, currentLobbyData = null;
+    const allWords = ["Яблоко", "Банан", "Гитара", "Вертолет", "Футбол", "Пицца", "Космонавт", "Замок", "Океан", "Дракон", "Компьютер", "Телефон", "Слон", "Тигр", "Шоколад", "Мороженое", "Ракета", "Пират", "Ниндзя", "Король", "Рыцарь", "Велосипед", "Автобус", "Поезд", "Корабль", "Самолет", "Танк", "Скрипка", "Пианино", "Барабан", "Кактус", "Пальма", "Солнце", "Луна", "Звезда", "Облако", "Радуга", "Молния", "Снеговик", "Зонт", "Очки", "Часы", "Ключ", "Молоток", "Лампочка", "Книга", "Карандаш", "Краски", "Робот", "Скейтборд", "Кенгуру", "Пингвин", "Жираф", "Зебра", "Хомяк", "Попугай", "Черепаха", "Акула", "Медуза", "Осьминог", "Бабочка", "Пчела", "Паук", "Гриб", "Арбуз", "Ананас", "Бургер", "Пончик", "Суши", "Яичница", "Кофе", "Чайник", "Холодильник", "Пылесос", "Телевизор", "Микроскоп", "Телескоп", "Компас", "Карта", "Палатка", "Костер", "Глобус", "Мост", "Эйфелева башня", "Статуя Свободы", "Пирамида", "Вулкан", "Пустыня", "Джунгли", "Ледник", "Пещера", "Водопад", "Остров", "Мельница", "Маяк", "Фонтан", "Качели", "Цирк", "Театр", "Музей", "Библиотека", "Школа", "Аптека", "Больница", "Почта", "Банк", "Тюрьма", "Полиция", "Пожарный", "Повар", "Врач", "Учитель", "Фермер", "Космос", "Планета", "Комета", "Черная дыра", "Инопланетянин", "Магия", "Привидение", "Зомби", "Вампир", "Оборотень", "Русалка", "Единорог", "Фея", "Гном", "Тролль"];
 
     function showScreen(id) {
-        document.querySelectorAll('.container > div').forEach(d => {
-            if(d.id.startsWith('screen')) d.classList.add('hidden');
-        });
+        document.querySelectorAll('.container > div').forEach(d => d.classList.add('hidden'));
         document.getElementById(id).classList.remove('hidden');
     }
 
     function saveNick() {
         myNick = document.getElementById('input-nick').value.trim();
-        if (myNick.length < 2) return alert("Ник слишком короткий!");
+        if (myNick.length < 2) return alert("Ник короткий!");
+        localStorage.setItem('playerNick', myNick);
         document.getElementById('welcome-msg').innerText = "Привет, " + myNick;
         showScreen('screen-menu');
     }
@@ -114,29 +122,17 @@
     function createLobby() {
         isHost = true;
         lobbyId = Math.random().toString(36).substring(2, 6).toUpperCase();
-        db.ref('lobbies/' + lobbyId).set({
-            status: 'waiting',
-            players: [myNick],
-            host: myNick,
-            currentTurn: 0,
-            word: ["Мяч", "Ворота", "Кубок", "Поле", "Бутсы", "Свисток", "Шарф", "Капитан", "Стадион", 
-       "Дерево", "Книга", "Солнце", "Луна", "Река", "Гора", "Облако", "Птица", "Рыба", "Озеро", 
-       "Мост", "Дом", "Автомобиль", "Велосипед", "Морковь", "Яблоко", "Слон", "Тигр", "Кот", 
-       "Собака", "Чайник", "Кофе", "Стол", "Стул", "Лампа", "Телефон", "Компьютер", "Зонт", 
-       "Очки", "Ручка", "Карандаш", "Тетрадь", "Машина", "Птица", "Карандаш", "Окно", "Дверь", "Рюкзак", "Мыло", "Зеркало"]
-[Math.floor(Math.random()*50)]
-        });
+        db.ref('lobbies/' + lobbyId).set({ status: 'waiting', players: [myNick], host: myNick });
         connectToFirebase();
     }
 
     function joinLobby() {
-        const code = prompt("Код лобби:").toUpperCase();
+        const code = prompt("Код:").toUpperCase();
         if (!code) return;
         db.ref('lobbies/' + code).once('value', snap => {
-            if (!snap.exists()) return alert("Игра не найдена!");
+            if (!snap.exists()) return alert("Нет такой игры!");
             lobbyId = code;
-            let data = snap.val();
-            let pList = data.players || [];
+            let pList = snap.val().players || [];
             if (!pList.includes(myNick)) pList.push(myNick);
             db.ref('lobbies/' + lobbyId).update({ players: pList });
             connectToFirebase();
@@ -148,33 +144,24 @@
         document.getElementById('lobby-code-display').innerText = lobbyId;
 
         db.ref('lobbies/' + lobbyId).on('value', snap => {
-            currentLobbyData = snap.val(); // Обновляем данные лобби
-            if (!currentLobbyData) {
-                alert("Лобби было закрыто или не существует.");
-                lobbyId = null;
-                showScreen('screen-menu');
-                return;
-            }
-            players = currentLobbyData.players; // Обновляем глобальный список игроков для UI
+            currentLobbyData = snap.val();
+            if (!currentLobbyData) return;
+            
+            const playersInLobby = currentLobbyData.players || [];
+            document.getElementById('list-players').innerHTML = playersInLobby.map(p => {
+                let status = (currentLobbyData.status !== 'waiting' && currentLobbyData.alivePlayers && !currentLobbyData.alivePlayers.includes(p)) ? " <span style='color:red'>(Выбыл)</span>" : "";
+                return `<li>⚽️ ${p}${status}</li>`;
+            }).join('');
 
-            document.getElementById('list-players').innerHTML = players.map(p => `<li>⚽️ ${p}</li>`).join('');
-
-            if (isHost && players.length >= 3 && currentLobbyData.status === 'waiting') {
+            if (isHost && playersInLobby.length >= 3 && currentLobbyData.status === 'waiting') {
                 document.getElementById('btn-start').classList.remove('hidden');
-                document.getElementById('wait-msg').classList.add('hidden');
             } else {
-                 document.getElementById('btn-start').classList.add('hidden');
-                 document.getElementById('wait-msg').classList.remove('hidden');
+                document.getElementById('btn-start').classList.add('hidden');
             }
 
-            // Логика перехода между экранами
             if (currentLobbyData.status === 'playing') {
-                if (!hasSeenRole) {
-                    showRoleScreen(currentLobbyData);
-                } else {
-                    // Всегда обновляем экран рисования, если роль уже показана
-                    updateDrawingScreen(currentLobbyData);
-                }
+                if (!hasSeenRole) showRoleScreen(currentLobbyData);
+                else updateDrawingScreen(currentLobbyData);
             } else if (currentLobbyData.status === 'voting') {
                 showVoteScreen(currentLobbyData);
             } else if (currentLobbyData.status === 'results') {
@@ -182,84 +169,70 @@
             }
         });
 
+        // Слушатель очистки доски
+        db.ref('drawings/' + lobbyId).on('value', snap => {
+            if (!snap.exists()) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        });
+
         db.ref('drawings/' + lobbyId).on('child_added', snap => {
-            const line = snap.val();
-            if (line.player !== myNick) drawRemoteLine(line);
+            drawRemoteLine(snap.val());
         });
     }
 
     function hostStartGame() {
-        const spy = players[Math.floor(Math.random() * players.length)];
+        db.ref('drawings/' + lobbyId).set(null); // Очищаем доску в БД
+        const word = allWords[Math.floor(Math.random() * allWords.length)];
+        const spy = currentLobbyData.players[Math.floor(Math.random() * currentLobbyData.players.length)];
         db.ref('lobbies/' + lobbyId).update({
-            status: 'playing',
-            spy: spy,
-            currentTurn: 0 // Устанавливаем первый ход
+            status: 'playing', word: word, spy: spy, currentTurn: 0,
+            alivePlayers: currentLobbyData.players, votes: null, resultText: null
         });
     }
 
     function showRoleScreen(data) {
-        hasSeenRole = true;
+hasSeenRole = true;
         const imSpy = (data.spy === myNick);
         document.getElementById('role-display').innerText = imSpy ? "ТЫ ШПИОН!" : "ТЫ ХУДОЖНИК";
         document.getElementById('role-display').style.color = imSpy ? "red" : "green";
-        document.getElementById('word-display').innerText = imSpy ? "??? (Угадай по рисунку)" : data.word;
+        document.getElementById('word-display').innerText = imSpy ? "???" : data.word;
         showScreen('screen-role');
     }
 
     function confirmRole() {
         showScreen('screen-draw');
         initCanvas();
-        // Принудительно обновляем состояние рисования после подтверждения роли
-        if (currentLobbyData) {
-            updateDrawingScreen(currentLobbyData);
-        } else {
-            console.error("Ошибка: currentLobbyData не загружены при подтверждении роли.");
-            alert("Ошибка загрузки данных лобби. Попробуйте перезагрузить страницу.");
-        }
+        if (currentLobbyData) updateDrawingScreen(currentLobbyData);
     }
 
     function updateDrawingScreen(data) {
-        showScreen('screen-draw'); // Убеждаемся, что экран рисования активен
-        
-        console.log("--- updateDrawingScreen called ---");
-        console.log("currentLobbyData.currentTurn:", data.currentTurn);
-        console.log("data.players:", data.players);
-        console.log("myNick:", myNick);
-
-        const turnIndex = data.currentTurn || 0;
-        const currentPlayers = data.players || []; // Используем players напрямую из data
-        const turnNick = currentPlayers[turnIndex]; // Определяем, кто сейчас ходит
-
+        showScreen('screen-draw');
+        const alive = data.alivePlayers || data.players;
+        const turnNick = alive[data.currentTurn % alive.length];
         const isMyTurn = (turnNick === myNick);
-        window.isMyTurnNow = isMyTurn; // Глобальный флаг для холста
+        window.isMyTurnNow = isMyTurn;
 
-        console.log("turnIndex:", turnIndex, "turnNick:", turnNick, "isMyTurn:", isMyTurn);
-
-        document.getElementById('turn-info').innerText = isMyTurn ? "ТВОЙ ХОД! Рисуй линию" : "Рисует: " + turnNick;
+        document.getElementById('turn-info').innerText = isMyTurn ? "ТВОЙ ХОД! Рисуй" : "Рисует: " + turnNick;
         document.getElementById('btn-finish-line').classList.toggle('hidden', !isMyTurn);
         document.getElementById('txt-wait-turn').classList.toggle('hidden', isMyTurn);
+        document.getElementById('btn-spy-guess').classList.toggle('hidden', !(data.spy === myNick && isMyTurn));
     }
 
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    let drawing = false, lastX = 0, lastY = 0;
+    let drawing = false, lastX, lastY;
 
     function initCanvas() {
         ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#000';
-        canvas.onmousedown = startDrawing;
-        canvas.onmousemove = moveDrawing;
-        canvas.onmouseup = stopDrawing;
-        canvas.onmouseout = stopDrawing; 
+        canvas.onmousedown = startDrawing; canvas.onmousemove = moveDrawing; canvas.onmouseup = stopDrawing;
         canvas.ontouchstart = (e) => { e.preventDefault(); startDrawing(e.touches[0]); };
         canvas.ontouchmove = (e) => { e.preventDefault(); moveDrawing(e.touches[0]); };
         canvas.ontouchend = stopDrawing;
     }
 
     function startDrawing(e) {
-        if (!window.isMyTurnNow) {
-            console.log("Не твой ход, рисование заблокировано.");
-            return;
-        }
+        if (!window.isMyTurnNow) return;
         drawing = true;
         const rect = canvas.getBoundingClientRect();
         lastX = (e.clientX || e.pageX) - rect.left;
@@ -272,7 +245,7 @@
         const x = (e.clientX || e.pageX) - rect.left;
         const y = (e.clientY || e.pageY) - rect.top;
         ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(x, y); ctx.stroke();
-        db.ref('drawings/' + lobbyId).push({ player: myNick, x1: lastX, y1: lastY, x2: x, y2: y });
+        db.ref('drawings/' + lobbyId).push({ x1: lastX, y1: lastY, x2: x, y2: y });
         lastX = x; lastY = y;
     }
 
@@ -282,89 +255,108 @@
     }
 
     function finishTurn() {
-        db.ref('lobbies/' + lobbyId).once('value', snap => {
-            const data = snap.val();
-            let next = (data.currentTurn || 0) + 1;
-            if (next >= players.length) {
-                db.ref('lobbies/' + lobbyId).update({ status: 'voting' });
-            } else {
-                db.ref('lobbies/' + lobbyId).update({ currentTurn: next });
-            }
-        });
+        let next = currentLobbyData.currentTurn + 1;
+        if (next >= currentLobbyData.alivePlayers.length) {
+            db.ref('lobbies/' + lobbyId).update({ status: 'voting' });
+        } else {
+            db.ref('lobbies/' + lobbyId).update({ currentTurn: next });
+        }
     }
 
     function showVoteScreen(data) {
         showScreen('screen-vote');
         const box = document.getElementById('vote-buttons');
         box.innerHTML = "";
-        players.forEach(p => {
+        data.alivePlayers.forEach(p => {
             if (p === myNick) return;
             let btn = document.createElement('button');
             btn.innerText = p;
             btn.onclick = () => castVote(p);
             box.appendChild(btn);
         });
+        document.getElementById('btn-skip-vote').disabled = false;
     }
 
     function castVote(target) {
         db.ref('lobbies/' + lobbyId + '/votes/' + myNick).set(target);
         alert("Голос принят! Ждем остальных...");
+        document.querySelectorAll('#vote-buttons button').forEach(b => b.disabled = true);
+        document.getElementById('btn-skip-vote').disabled = true;
+
         if (isHost) {
             db.ref('lobbies/' + lobbyId + '/votes').on('value', snap => {
-                const votes = snap.val();
-                if (votes && Object.keys(votes).length >= players.length) {
-                    db.ref('lobbies/' + lobbyId + '/votes').off(); // Отключаем слушатель после сбора всех голосов
-                    processResults(currentLobbyData, votes);
+                const v = snap.val();
+                if (v && Object.keys(v).length >= currentLobbyData.alivePlayers.length) {
+                    db.ref('lobbies/' + lobbyId + '/votes').off();
+                    processResults(v);
                 }
             });
         }
     }
 
-    function processResults(data, votes) {
-        let skipCount = 0;
+    function processResults(votes) {
         let counts = {};
+        let skipCount = 0;
         for (let p in votes) {
             if (votes[p] === 'skip') skipCount++;
             else counts[votes[p]] = (counts[votes[p]] || 0) + 1;
         }
 
-        let maxVotes = 0;
-        let votedOutPlayer = "skip"; // По умолчанию считаем, что пропуск лидирует
-        for (let p in counts) {
-if (counts[p] > maxVotes) {
-                maxVotes = counts[p];
-                votedOutPlayer = p;
+        let max = 0, votedOut = "skip";
+        for (let p in counts) { if (counts[p] > max) { max = counts[p]; votedOut = p; } }
+
+        if (skipCount >= max) {
+            alert("Голосование пропущено! Продолжаем.");
+            db.ref('lobbies/' + lobbyId).update({ status: 'playing', currentTurn: 0, votes: null });
+        } else {
+            alert("Голосование завершено! Выгнали: " + votedOut);
+            const data = currentLobbyData;
+            if (votedOut === data.spy) {
+                endGame("Художники победили! Шпион был пойман.", data.spy, data.word);
+            } else {
+                let newAlive = data.alivePlayers.filter(p => p !== votedOut);
+                if (newAlive.length <= 2) {
+                    endGame("Шпион победил! Художников осталось слишком мало.", data.spy, data.word);
+                } else {
+                    db.ref('lobbies/' + lobbyId).update({ status: 'playing', currentTurn: 0, alivePlayers: newAlive, votes: null });
+                }
             }
         }
-        
-        // Если скипов больше, чем голосов за конкретного игрока, или ничья с "скипом"
-        if (skipCount > maxVotes || (skipCount === maxVotes && votedOutPlayer === "skip")) { 
-            db.ref('lobbies/' + lobbyId).update({
-                status: 'playing', // Продолжаем игру
-                currentTurn: 0,
-                votes: null // Очищаем голоса
-            });
-            alert("Голосование пропущено! Продолжаем рисовать.");
+    }
+
+    function showSpyGuessScreen() { showScreen('screen-spy-guess'); }
+
+    function spyGuessWord() {
+        const guess = document.getElementById('spy-guess-input').value.trim().toLowerCase();
+        if (guess === currentLobbyData.word.toLowerCase()) {
+            endGame("Шпион угадал слово и победил!", myNick, currentLobbyData.word);
         } else {
-            // Кого-то выгнали, игра окончена
-            db.ref('lobbies/' + lobbyId).update({
-                status: 'results',
-                kicked: votedOutPlayer,
-                winner: (votedOutPlayer === data.spy) ? "Художники" : "Шпион",
-                spyNick: data.spy
-            });
+            endGame("Шпион ошибся! Художники победили.", currentLobbyData.spy, currentLobbyData.word);
         }
+    }
+
+    function endGame(text, spy, word) {
+        db.ref('lobbies/' + lobbyId).update({ status: 'results', resultText: text, finalSpy: spy, finalWord: word });
     }
 
     function showResultsScreen(data) {
         showScreen('screen-results');
-        document.getElementById('result-text').innerText = 
-            `Выгнали: ${data.kicked}. Победил ${data.winner}! Шпионом был ${data.spyNick}.`;
-        
-        // Отключаем все слушатели Firebase, так как игра завершена
-        db.ref('lobbies/' + lobbyId).off();
-        db.ref('drawings/' + lobbyId).off();
+        document.getElementById('result-text').innerText = data.resultText;
+        document.getElementById('spy-info').innerText = `Шпион: ${data.finalSpy} | Слово: ${data.finalWord}`;
     }
+
+    function returnToLobby() {
+        hasSeenRole = false;
+        db.ref('lobbies/' + lobbyId).update({ 
+            status: 'waiting', alivePlayers: null, votes: null, spy: null, word: null, resultText: null 
+        });
+        showScreen('screen-lobby');
+    }
+
+    window.onload = () => {
+        const stored = localStorage.getItem('playerNick');
+        if (stored) document.getElementById('input-nick').value = stored;
+    };
 </script>
 </body>
 </html>
